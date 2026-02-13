@@ -5,6 +5,9 @@ Loads workstations from DB and updates metrics every 10 seconds
 
 from workstation_inference import WorkstationInference, DatabaseConfig
 import cv2
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 def main():
     # =====================
@@ -15,11 +18,11 @@ def main():
     
     # Database configuration
     DB_CONFIG = DatabaseConfig(
-        host="localhost",
-        port=5432,
-        dbname="test",
-        user="postgres",
-        password="admin123"
+        host= os.getenv("DB_HOST"),
+        port= os.getenv("DB_PORT"),
+        dbname= os.getenv("DB_NAME"),
+        user= os.getenv("DB_USER"),
+        password= os.getenv("DB_PASSWORD")
     )
     
     # Organization and Camera IDs

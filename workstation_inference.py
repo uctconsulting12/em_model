@@ -3,17 +3,21 @@ Workstation Occupancy Inference System
 
 Real-time person detection and workstation monitoring using YOLOv8
 """
-
+import os
 import cv2
 import time
 import numpy as np
 import psycopg2
 import threading
 import copy
+import os
 from ultralytics import YOLO
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass, field
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 @dataclass
@@ -48,11 +52,11 @@ class WorkstationState:
 @dataclass
 class DatabaseConfig:
     """Database connection configuration"""
-    host: str = "localhost"
-    port: int = 5432
-    dbname: str = "test"
-    user: str = "postgres"
-    password: str = "admin123"
+    host: str = os.getenv("DB_HOST")
+    port: int = os.getenv("DB_PORT")
+    dbname: str = os.getenv("DB_NAME")
+    user: str = os.getenv("DB_USER")
+    password: str = os.getenv("DB_PASSWORD")
 
 
 class WorkstationInference:

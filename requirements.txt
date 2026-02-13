@@ -14,7 +14,6 @@ opencv-python
 ultralytics
 boto3
 psycopg2-binary
-logging
 
 
 ##############################################
@@ -26,3 +25,5 @@ websockets
 httpx
 python-multipart
 
+python-dotenv
+imageio-ffmpeg

@@ -1,0 +1,7 @@
+__pycache__/
+hls_out/
+info/
+test.mp4
+.env
+.git/
+.github/
