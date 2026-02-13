@@ -15,8 +15,8 @@ Real-time workstation occupancy detection using **YOLOv8** person detection with
                                     ┌───────────────────┤
                                     ▼                    ▼
                          ┌──────────────────┐   ┌──────────────┐
-                         │ WorkstationInfer │   │   FFmpeg      │
-                         │ (YOLOv8 + ROIs)  │   │  (HLS encode) │
+                         │ WorkstationInfer │   │   FFmpeg     │
+                         │ (YOLOv8 + ROIs)  │   │ (HLS encode) │
                          └────────┬─────────┘   └──────────────┘
                                   │
                                   ▼
