@@ -5,10 +5,10 @@ Real-time workstation occupancy detection using **YOLOv8** person detection with
 ## Architecture
 
 ```
-┌──────────────┐     POST /streams/start      ┌─────────────────────┐
+┌──────────────┐     POST /streams/start       ┌─────────────────────┐
 │ React Client │ ──────────────────────────►   │   FastAPI (app.py)  │
 │              │ ◄──── HLS (.m3u8/.ts) ─────── │                     │
-│              │ ◄──── SSE (events) ──────────  │   stream_worker()   │
+│              │ ◄──── SSE (events) ────────── │   stream_worker()   │
 └──────────────┘                               │     per stream      │
                                                └────────┬────────────┘
                                                         │
