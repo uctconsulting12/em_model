@@ -54,7 +54,6 @@ class StartRequest(BaseModel):
     org_id: int |  None = None
     cam_id: int | None = None
     user_id: int | None = None
-    use_nvenc: bool = False
 
 
 class StopRequest(BaseModel):
@@ -103,7 +102,7 @@ def _ffmpeg_exe() -> str:
         return "ffmpeg"
 
 
-def stream_worker(stream_id: str, source: str, org_id: int, cam_id: int, stop_event: threading.Event, use_nvenc: bool):
+def stream_worker(stream_id: str, source: str, org_id: int, cam_id: int, stop_event: threading.Event):
     """
     Worker thread that runs inference and pipes frames to FFMPEG for HLS streaming.
     """
@@ -150,10 +149,8 @@ def stream_worker(stream_id: str, source: str, org_id: int, cam_id: int, stop_ev
     if fps <= 1:
         fps = 25.0
 
-    # FFmpeg Settings
-    vcodec = "libx264"
-    if use_nvenc:
-        vcodec = "h264_nvenc"
+    # FFmpeg Settings — always use GPU encoding
+    vcodec = "h264_nvenc"
 
     bitrate_k = 1024
     hls_time = 4
@@ -314,7 +311,7 @@ def start_stream(req: StartRequest):
 
     t = threading.Thread(
         target=stream_worker,
-        args=(stream_id, req.source, req.org_id, req.cam_id, stop_event, req.use_nvenc),
+        args=(stream_id, req.source, req.org_id, req.cam_id, stop_event),
         daemon=True,
     )
     
