@@ -33,10 +33,10 @@ def create_tables():
             org_id INT NOT NULL,
             cam_id INT NOT NULL,
             name TEXT NOT NULL,
-            x1 INT NOT NULL,
-            y1 INT NOT NULL,
-            x2 INT NOT NULL,
-            y2 INT NOT NULL,
+            x1 REAL NOT NULL,
+            y1 REAL NOT NULL,
+            x2 REAL NOT NULL,
+            y2 REAL NOT NULL,
             created_at TIMESTAMP DEFAULT now(),
             
             -- Prevent duplicate workstation names for the same camera

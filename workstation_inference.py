@@ -24,7 +24,7 @@ load_dotenv()
 class WorkstationState:
     """Represents the current state of a workstation"""
     name: str
-    roi: Tuple[int, int, int, int]  # x1, y1, x2, y2
+    roi: Tuple[float, float, float, float]  # x1, y1, x2, y2 (normalized 0.0-1.0)
     
     # Detection state
     occupied: bool = False
@@ -338,31 +338,46 @@ class WorkstationInference:
     def add_workstation(
         self, 
         name: str, 
-        roi: Tuple[int, int, int, int]
+        roi: Tuple[float, float, float, float]
     ) -> None:
         """
         Add a workstation region of interest
         
         Args:
             name: Workstation identifier
-            roi: Bounding box (x1, y1, x2, y2)
+            roi: Bounding box (x1, y1, x2, y2) normalized 0.0-1.0
         """
         self.workstations[name] = WorkstationState(name=name, roi=roi)
         print(f"📍 Added workstation: {name}")
     
     def load_workstations_from_config(
         self, 
-        config: Dict[str, Tuple[int, int, int, int]]
+        config: Dict[str, Tuple[float, float, float, float]]
     ) -> None:
         """
         Load multiple workstations from configuration dictionary
         
         Args:
-            config: Dict mapping workstation names to ROI coordinates
+            config: Dict mapping workstation names to normalized ROI coordinates
         """
         for name, roi in config.items():
             self.add_workstation(name, roi)
     
+    @staticmethod
+    def _denormalize_roi(
+        roi: Tuple[float, float, float, float],
+        frame_w: int,
+        frame_h: int
+    ) -> Tuple[int, int, int, int]:
+        """Convert normalized ROI (0.0-1.0) to pixel coordinates"""
+        x1, y1, x2, y2 = roi
+        return (
+            int(x1 * frame_w),
+            int(y1 * frame_h),
+            int(x2 * frame_w),
+            int(y2 * frame_h)
+        )
+
     def _detect_persons(self, frame: np.ndarray) -> List[Tuple[int, int]]:
         """
         Detect person centroids in frame
@@ -396,7 +411,7 @@ class WorkstationInference:
         point: Tuple[int, int], 
         roi: Tuple[int, int, int, int]
     ) -> bool:
-        """Check if point is inside ROI"""
+        """Check if point (pixels) is inside ROI (pixels)"""
         cx, cy = point
         x1, y1, x2, y2 = roi
         return x1 <= cx <= x2 and y1 <= cy <= y2
@@ -501,6 +516,9 @@ class WorkstationInference:
             if self.auto_update_db:
                 self._create_daily_rows(self.current_date)
         
+        # Get frame dimensions for denormalization
+        frame_h, frame_w = frame.shape[:2]
+        
         # Reset occupancy flags
         for ws in self.workstations.values():
             ws.occupied = False
@@ -509,10 +527,11 @@ class WorkstationInference:
         # Detect persons
         centroids = self._detect_persons(frame)
         
-        # Check occupancy for each workstation
+        # Check occupancy for each workstation (denormalize ROI per frame)
         for cx, cy, conf in centroids:
             for ws in self.workstations.values():
-                if self._is_point_in_roi((cx, cy), ws.roi):
+                px_roi = self._denormalize_roi(ws.roi, frame_w, frame_h)
+                if self._is_point_in_roi((cx, cy), px_roi):
                     ws.occupied = True
                     ws.confidence = max(ws.confidence, conf)
                     ws.last_seen_time = now
@@ -535,14 +554,16 @@ class WorkstationInference:
                 self.last_db_update = now
         
         # Draw annotations
-        annotated_frame = self._draw_annotations(frame, now)
+        annotated_frame = self._draw_annotations(frame, now, frame_w, frame_h)
         
         return annotated_frame
     
     def _draw_annotations(
         self, 
         frame: np.ndarray, 
-        now: float
+        now: float,
+        frame_w: int,
+        frame_h: int
     ) -> np.ndarray:
         """
         Draw workstation ROIs and status information
@@ -550,6 +571,8 @@ class WorkstationInference:
         Args:
             frame: Input frame
             now: Current timestamp
+            frame_w: Frame width in pixels
+            frame_h: Frame height in pixels
             
         Returns:
             Annotated frame
@@ -557,7 +580,7 @@ class WorkstationInference:
         output = frame.copy()
         
         for ws in self.workstations.values():
-            x1, y1, x2, y2 = ws.roi
+            x1, y1, x2, y2 = self._denormalize_roi(ws.roi, frame_w, frame_h)
             is_active = (ws.status == "ACTIVE")
             
             # Color coding

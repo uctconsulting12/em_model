@@ -54,7 +54,7 @@ def main():
         print("❌ No workstations found in database")
         print("   Please add workstations to the 'workstations' table:")
         print("   INSERT INTO workstations (org_id, cam_id, name, x1, y1, x2, y2)")
-        print("   VALUES (1, 1, 'Desk-A', 100, 100, 400, 500);")
+        print("   VALUES (1, 1, 'Desk-A', 0.1, 0.15, 0.4, 0.7);")
         return
     
     # Open video source

@@ -63,10 +63,10 @@ class StopRequest(BaseModel):
 
 class WorkstationROI(BaseModel):
     name: str
-    x1: int
-    y1: int
-    x2: int
-    y2: int
+    x1: float
+    y1: float
+    x2: float
+    y2: float
 
 
 class SaveWorkstationsRequest(BaseModel):
