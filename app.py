@@ -422,13 +422,19 @@ def save_workstations(req: SaveWorkstationsRequest):
 
     try:
         for ws in req.workstations:
+            # Frontend sends (x, y, width, height) — convert to corner coords
+            save_x1 = ws.x1
+            save_y1 = ws.y1
+            save_x2 = ws.x1 + ws.x2  # x + width
+            save_y2 = ws.y1 + ws.y2  # y + height
+
             cur.execute("""
                 INSERT INTO workstations (org_id, cam_id, name, x1, y1, x2, y2)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (org_id, cam_id, name)
                 DO UPDATE SET x1 = EXCLUDED.x1, y1 = EXCLUDED.y1,
                               x2 = EXCLUDED.x2, y2 = EXCLUDED.y2
-            """, (req.org_id, req.cam_id, ws.name, ws.x1, ws.y1, ws.x2, ws.y2))
+            """, (req.org_id, req.cam_id, ws.name, save_x1, save_y1, save_x2, save_y2))
 
         conn.commit()
         return {
