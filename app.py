@@ -421,6 +421,20 @@ def save_workstations(req: SaveWorkstationsRequest):
     cur = conn.cursor()
 
     try:
+        # Check if workstations already exist for this camera
+        cur.execute("""
+            SELECT COUNT(*) FROM workstations
+            WHERE org_id = %s AND cam_id = %s
+        """, (req.org_id, req.cam_id))
+        existing_count = cur.fetchone()[0]
+
+        if existing_count > 0:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Workstations already exist for cam_id={req.cam_id}. "
+                       f"Delete existing ROIs first before saving new ones."
+            )
+
         for ws in req.workstations:
             # Frontend sends (x, y, width, height) — convert to corner coords
             save_x1 = ws.x1
@@ -431,9 +445,6 @@ def save_workstations(req: SaveWorkstationsRequest):
             cur.execute("""
                 INSERT INTO workstations (org_id, cam_id, name, x1, y1, x2, y2)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (org_id, cam_id, name)
-                DO UPDATE SET x1 = EXCLUDED.x1, y1 = EXCLUDED.y1,
-                              x2 = EXCLUDED.x2, y2 = EXCLUDED.y2
             """, (req.org_id, req.cam_id, ws.name, save_x1, save_y1, save_x2, save_y2))
 
         conn.commit()
