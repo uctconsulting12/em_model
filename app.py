@@ -17,6 +17,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.cors import CORSMiddleware as StarletteCORS
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -41,7 +42,13 @@ app.add_middleware(
 # ---------------- HLS output ----------------
 HLS_ROOT = "hls_out"
 os.makedirs(HLS_ROOT, exist_ok=True)
-app.mount("/hls", StaticFiles(directory=HLS_ROOT), name="hls")
+hls_app = StarletteCORS(
+    StaticFiles(directory=HLS_ROOT),
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.mount("/hls", hls_app, name="hls")
 
 
 # Keep track of running streams (1 thread per stream)
