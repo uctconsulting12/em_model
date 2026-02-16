@@ -428,19 +428,11 @@ def save_workstations(req: SaveWorkstationsRequest):
     cur = conn.cursor()
 
     try:
-        # Check if workstations already exist for this camera
+        # Delete existing workstations for this camera, then insert new ones
         cur.execute("""
-            SELECT COUNT(*) FROM workstations
+            DELETE FROM workstations
             WHERE org_id = %s AND cam_id = %s
         """, (req.org_id, req.cam_id))
-        existing_count = cur.fetchone()[0]
-
-        if existing_count > 0:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Workstations already exist for cam_id={req.cam_id}. "
-                       f"Delete existing ROIs first before saving new ones."
-            )
 
         for ws in req.workstations:
             # Frontend sends (x, y, width, height) — convert to corner coords
