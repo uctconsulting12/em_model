@@ -1,2 +1,6 @@
 .env
 info/
+test.mp4
+/hls_out
+__pycache__
+env/
