@@ -53,7 +53,8 @@ class WorkstationState:
 class DatabaseConfig:
     """Database connection configuration"""
     host: str = os.getenv("DB_HOST")
-    port: int = os.getenv("DB_PORT")
+    # BUG FIX 1: os.getenv returns str; psycopg2 requires int for port
+    port: int = int(os.getenv("DB_PORT", 5432))
     dbname: str = os.getenv("DB_NAME")
     user: str = os.getenv("DB_USER")
     password: str = os.getenv("DB_PASSWORD")
@@ -98,6 +99,9 @@ class WorkstationInference:
         
         self.workstations: Dict[str, WorkstationState] = {}
         self.start_time = time.time()
+
+        # BUG FIX 2: Lock to protect workstation state across main and DB threads
+        self._state_lock = threading.Lock()
         
         # Database configuration
         self.db_config = db_config or DatabaseConfig()
@@ -268,17 +272,18 @@ class WorkstationInference:
             analytics_date: Date object for analytics
         """
         try:
-            # Create deep copy of state for thread safety
-            ws_state_copy = {}
-            for name, ws in self.workstations.items():
-                ws_state_copy[name] = {
-                    'time_active': ws.time_active,
-                    'time_vacant': ws.time_vacant,
-                    'missing_count': ws.missing_count,
-                    'missing_duration': ws.missing_duration,
-                    'first_seen_time': ws.first_seen_time,
-                    'last_present_time': ws.last_present_time
-                }
+            # BUG FIX 2 (cont.): Acquire lock before reading shared state
+            with self._state_lock:
+                ws_state_copy = {}
+                for name, ws in self.workstations.items():
+                    ws_state_copy[name] = {
+                        'time_active': ws.time_active,
+                        'time_vacant': ws.time_vacant,
+                        'missing_count': ws.missing_count,
+                        'missing_duration': ws.missing_duration,
+                        'first_seen_time': ws.first_seen_time,
+                        'last_present_time': ws.last_present_time
+                    }
             
             conn = self._get_db_connection()
             cur = conn.cursor()
@@ -378,7 +383,8 @@ class WorkstationInference:
             int(y2 * frame_h)
         )
 
-    def _detect_persons(self, frame: np.ndarray) -> List[Tuple[int, int]]:
+    # BUG FIX 7: Fixed return type annotation — returns List[Tuple[int, int, float]] not List[Tuple[int, int]]
+    def _detect_persons(self, frame: np.ndarray) -> List[Tuple[int, int, float]]:
         """
         Detect person centroids in frame
         
@@ -386,7 +392,7 @@ class WorkstationInference:
             frame: Input video frame
             
         Returns:
-            List of (cx, cy) centroid coordinates
+            List of (cx, cy, confidence) centroid coordinates
         """
         results = self.model(
             frame, 
@@ -428,14 +434,17 @@ class WorkstationInference:
             ws: Workstation state object
             now: Current timestamp
         """
-        # Initialize timing
+        # BUG FIX 3: On first call, seed _last_update and status, but don't
+        # return early — we still need to run the state machine so that a
+        # person detected in frame 0 is immediately registered as ACTIVE.
         if ws._last_update is None:
             ws._last_update = now
             ws.last_status_change = now
-            return
-        
+            # elapsed will be 0, so no time is accumulated — fall through
+            # to let status and _last_status be set correctly on frame 0.
+
         elapsed = now - ws._last_update
-        
+
         # Determine current status with hysteresis
         if ws.occupied:
             current_status = "ACTIVE"
@@ -443,36 +452,50 @@ class WorkstationInference:
             current_status = "ACTIVE"  # Grace period
         else:
             current_status = "VACANT"
-        
-        # Accumulate time
-        if ws._last_status == "ACTIVE":
-            ws.time_active += elapsed
-        else:
-            ws.time_vacant += elapsed
-            if ws.first_seen_time is not None:
-                ws.missing_duration += elapsed
-        
-        # Handle state transitions
-        if current_status == "VACANT" and ws._last_status == "ACTIVE":
-            # Just left
-            ws.last_present_time = ws.last_seen_time
-            if ws.first_seen_time is not None:
-                ws.missing_count += 1
-                ws._current_vacancy_start = now
-                
-        elif current_status == "ACTIVE" and ws._last_status == "VACANT":
-            # Just returned
-            if ws._current_vacancy_start is not None:
-                vacancy_duration = now - ws._current_vacancy_start
-                ws._current_vacancy_start = None
-        
-        # Update status
-        if current_status != ws._last_status:
-            ws.last_status_change = now
-        
-        ws.status = current_status
-        ws._last_status = current_status
-        ws._last_update = now
+
+        # BUG FIX 2 (cont.): Wrap all shared-state mutations in the lock so the
+        # background DB thread always reads a consistent snapshot.
+        with self._state_lock:
+            # Accumulate time
+            if ws._last_status == "ACTIVE":
+                ws.time_active += elapsed
+            else:
+                # BUG FIX 4: Only accumulate missing_duration when the workstation
+                # has already been used AND is currently in an absence window.
+                # Previously this grew during ordinary pre-use vacancy.
+                ws.time_vacant += elapsed
+                if ws.first_seen_time is not None and ws._current_vacancy_start is not None:
+                    ws.missing_duration += elapsed
+
+            # Handle state transitions
+            if current_status == "VACANT" and ws._last_status == "ACTIVE":
+                # Person just left
+                ws.last_present_time = ws.last_seen_time
+                if ws.first_seen_time is not None:
+                    # BUG FIX 5: Only increment missing_count once the person has
+                    # been gone for at least one full missing_threshold window.
+                    # We record the departure time here and check duration on return.
+                    ws._current_vacancy_start = now
+
+            elif current_status == "ACTIVE" and ws._last_status == "VACANT":
+                # Person just returned
+                if ws._current_vacancy_start is not None:
+                    vacancy_duration = now - ws._current_vacancy_start
+                    # Only count as a "missing" event if they were gone long enough
+                    # to have actually triggered the VACANT status (>= missing_threshold).
+                    # Short blips below the threshold never flip status to VACANT, so
+                    # this branch only runs for genuine absences.
+                    if vacancy_duration >= self.missing_threshold:
+                        ws.missing_count += 1
+                    ws._current_vacancy_start = None
+
+            # Update status
+            if current_status != ws._last_status:
+                ws.last_status_change = now
+
+            ws.status = current_status
+            ws._last_status = current_status
+            ws._last_update = now
     
     def process_frame(
         self, 
@@ -503,15 +526,16 @@ class WorkstationInference:
             
             # Reset for new day
             self.current_date = today
-            for ws in self.workstations.values():
-                ws.time_active = 0.0
-                ws.time_vacant = 0.0
-                ws.missing_count = 0
-                ws.missing_duration = 0.0
-                ws.first_seen_time = None
-                ws._current_vacancy_start = None
-                if ws.occupied:
-                    ws.first_seen_time = now
+            with self._state_lock:
+                for ws in self.workstations.values():
+                    ws.time_active = 0.0
+                    ws.time_vacant = 0.0
+                    ws.missing_count = 0
+                    ws.missing_duration = 0.0
+                    ws.first_seen_time = None
+                    ws._current_vacancy_start = None
+                    if ws.occupied:
+                        ws.first_seen_time = now
             
             if self.auto_update_db:
                 self._create_daily_rows(self.current_date)
@@ -584,7 +608,7 @@ class WorkstationInference:
             is_active = (ws.status == "ACTIVE")
             
             # Color coding
-            color = (0, 255, 0) if is_active else (0, 0, 255)
+            color = (0, 255, 100) if is_active else (0, 0, 255)
             
             # Draw ROI rectangle
             cv2.rectangle(output, (x1, y1), (x2, y2), color, 2)
@@ -606,11 +630,15 @@ class WorkstationInference:
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2
             )
             
-            # Countdown timer (grace period)
+            # BUG FIX 6: Use visual_countdown (not missing_threshold) for the
+            # on-screen timer so the two values can be tuned independently.
+            # visual_countdown controls when the UI starts showing the warning;
+            # missing_threshold controls when status actually flips to VACANT.
             if is_active and not ws.occupied and ws.last_seen_time:
                 elapsed_since_seen = now - ws.last_seen_time
                 remaining = self.missing_threshold - elapsed_since_seen
-                if remaining > 0:
+                # Only start showing the countdown once inside the visual window
+                if 0 < remaining <= self.visual_countdown:
                     cv2.putText(
                         output, f"Missing: {remaining:.1f}s",
                         (x1, y2 + 40),
